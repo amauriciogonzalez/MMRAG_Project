@@ -1,0 +1,41 @@
+Sun Mar 17 21:29:42 EDT 2024
+Slurm nodes: evc21
+You were assigned 1 gpu(s)
+	[4mGPU0	NIC0	CPU Affinity	NUMA Affinity	GPU NUMA ID[0m
+GPU0	 X 	SYS	1,3	1		N/A
+NIC0	SYS	 X 				
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
+  PIX  = Connection traversing at most a single PCIe bridge
+  NV#  = Connection traversing a bonded set of # NVLinks
+
+NIC Legend:
+
+  NIC0: mlx5_0
+
+
+[2024-03-17 21:29:48,935] [INFO] [real_accelerator.py:161:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+====================================================================================================
+d5bbc4440dba11ecb1e81171463288e9
+Query: Ignore the image and answer the following question: "Are both the Original Playboy Mansion and Gage Park High School made of brick?"
+Prediction: Yes, both the Original Playboy Mansion and Gage Park High School are made of brick.
+====================================================================================================
+====================================================================================================
+d5bbc8180dba11ecb1e81171463288e9
+Query: Ignore the image and answer the following question: "Are there bears in the background of the painting "Greek Landscape"?"
+Prediction: No, there are no bears in the background of the painting "Greek Landscape." The image features a black background with no visible objects or animals.
+====================================================================================================
+====================================================================================================
+d5bbcaca0dba11ecb1e81171463288e9
+Query: Ignore the image and answer the following question: "Are there flowering trees in front of both the Georgia Tech Library and the Newman Library at Virginia Tech?"
+Prediction: No, there are no flowering trees in front of either the Georgia Tech Library or the Newman Library at Virginia Tech. The image shows a black background, which suggests that the focus is on the buildings themselves rather than their surroundings.
+====================================================================================================
+Output dictionary: {'d5bbc4440dba11ecb1e81171463288e9': {'sources': [], 'answer': 'Yes, both the Original Playboy Mansion and Gage Park High School are made of brick.'}, 'd5bbc8180dba11ecb1e81171463288e9': {'sources': [], 'answer': 'No, there are no bears in the background of the painting "Greek Landscape." The image features a black background with no visible objects or animals.'}, 'd5bbcaca0dba11ecb1e81171463288e9': {'sources': [], 'answer': 'No, there are no flowering trees in front of either the Georgia Tech Library or the Newman Library at Virginia Tech. The image shows a black background, which suggests that the focus is on the buildings themselves rather than their surroundings.'}}
+Ending script...
+Sun Mar 17 21:30:24 EDT 2024
