@@ -5,11 +5,14 @@ import argparse
 import json
 from PIL import Image
 from collections import Counter
+import numpy as np
 
 from word2number import w2n
 import string, re
-import spacy 
-import en_core_web_sm   
+
+
+#import spacy 
+#import en_core_web_sm   
 
 #pip install -U pip setuptools wheel
 #pip install -U spacy
@@ -17,10 +20,11 @@ import en_core_web_sm
 
 # Load English tokenizer, tagger, parser, NER, and word vectors
 #nlp = spacy.load("en_core_web_sm")
-nlp = en_core_web_sm.load()
 
 
-"""
+# ORIGINAL IMPLEMENTATION
+
+
 def detectNum(l):
     result = []
     for w in l:
@@ -33,6 +37,7 @@ def toNum(word):
     except:
         return word
 
+"""
 def normalize_text(s):
     def remove_articles(text):
         regex = re.compile(r"\b(a|an|the)\b", re.UNICODE)
@@ -61,6 +66,9 @@ def normalize_text(s):
 """
 
 
+# IDEAL IMPLEMENTATION
+
+"""
 def normalize_text(text):
     # Define functions for text normalization
     def remove_articles(text):
@@ -88,6 +96,46 @@ def normalize_text(text):
     normalized_text = lemmatize(normalized_text)
 
     return normalized_text
+"""
+
+
+def normalize_text(text):
+    # Define functions for text normalization
+    def remove_articles(text):
+        # Remove articles (a, an, the) from the text
+        regex = re.compile(r"\b(a|an|the)\b", re.UNICODE)
+        return re.sub(regex, " ", text)
+
+    def remove_punctuation(text):
+        # Remove punctuation from the text
+        return text.translate(str.maketrans("", "", string.punctuation))
+
+    def lowercase(text):
+        # Convert text to lowercase
+        return text.lower()
+
+    # Changes "has" to "ha"
+    """
+    def lemmatize(text):
+        # Lemmatize the text using a simple method
+        lemmatized_text = []
+        for word in text.split():
+            # You can add more sophisticated lemmatization rules if needed
+            lemmatized_word = word
+            if word.endswith('s'):
+                lemmatized_word = word[:-1]  # Remove the 's' at the end
+            lemmatized_text.append(lemmatized_word)
+        return " ".join(lemmatized_text)
+    """
+
+    # Apply text normalization functions sequentially
+    normalized_text = remove_articles(text)
+    normalized_text = remove_punctuation(normalized_text)
+    normalized_text = lowercase(normalized_text)
+    #normalized_text = lemmatize(normalized_text)
+
+    return normalized_text
+
 
 
 
@@ -96,6 +144,8 @@ def _webqa_acc_approx(predction, ground_truth, domain=None):
     """VQA Eval (SQuAD style EM, F1)"""
     bow_pred = normalize_text(predction).split()
     bow_target = normalize_text(ground_truth).split()
+    print("Normalized Prediction:", bow_pred)
+    print("Normalized Target:", bow_target)
     if domain == {"NUMBER"}:
         bow_pred = detectNum(bow_pred)
         bow_target = detectNum(bow_target)
@@ -136,11 +186,16 @@ def webqa_metrics_approx(prediction, ground_truth, Qcate="text"):
             "choose": None,
         }[Qcate],
     )
+
+    """
     if Qcate in ["color", "shape", "number", "YesNo"]:
         accuracy = f1
     else:
         accuracy = recall
     return {"acc_approx": accuracy}
+    """
+
+    return {"precision": precision, "recall": recall, "F1-score": f1}
 
 def llava_example():
     model_path = "liuhaotian/llava-v1.5-7b"
@@ -165,6 +220,7 @@ def llava_example():
     print("Query:", prompt)
     print("")
     print("Answer:", answer)
+
 
 def llava_question_only_webqa_test(dataset, save_output):
     # Define the LLAVA model path and other parameters
@@ -224,6 +280,7 @@ def llava_question_only_webqa_test(dataset, save_output):
 
 def llava_question_only_webqa_val(dataset):
     # Define the LLAVA model path and other parameters
+    """
     model_path = "liuhaotian/llava-v1.5-7b"
     args = type('Args', (), {
         "model_path": model_path,
@@ -236,6 +293,32 @@ def llava_question_only_webqa_val(dataset):
         "top_p": None,
         "num_beams": 1,
         "max_new_tokens": 512
+    })
+    """
+
+    model_path = "liuhaotian/llava-v1.5-7b"
+
+    tokenizer, model, image_processor, context_len = load_pretrained_model(
+        model_path=model_path,
+        model_base=None,
+        model_name=get_model_name_from_path(model_path)
+    )
+
+    args = type('Args', (), {
+        "model_path": model_path,
+        "model_base": None,
+        "model_name": get_model_name_from_path(model_path),  # Extract model name from path
+        "conv_mode": None,
+        "image_file": 'black_image.png',
+        "sep": ",",
+        "temperature": 0,
+        "top_p": None,
+        "num_beams": 1,
+        "max_new_tokens": 512,
+        "tokenizer": tokenizer,
+        "model": model,
+        "image_processor": image_processor,
+        "context_len": context_len,
     })
 
 
@@ -254,11 +337,16 @@ def llava_question_only_webqa_val(dataset):
         args.query = context + question
         prediction = eval_model(args) # NEED TO EXPAND THIS
         ground_truth = sample_data['A']
+        print("Num answers:", len(ground_truth))
+        ground_truth = ground_truth[0]
         Qcate = sample_data['Qcate']
 
+        print({i})
+        print(sample_guid)
         print("Question:", question)
+        print("Query:", context + question)
         print("Qcate:", Qcate)
-        print("prediction:", prediction)
+        print("Prediction:", prediction)
         print("Answer:", ground_truth)
         
         # Compute evaluation metrics for the current sample
@@ -269,10 +357,6 @@ def llava_question_only_webqa_val(dataset):
         metrics_by_category[Qcate]['recall'].append(metrics['recall'])
         metrics_by_category[Qcate]['F1-score'].append(metrics['F1-score'])
 
-        print({index})
-        print(sample_guid)
-        print("Query:", context + question)
-        print("Prediction:", answer)
         print("=" * 100)
 
         i+=1
@@ -286,8 +370,17 @@ def llava_question_only_webqa_val(dataset):
         overall_metrics_by_category[category] = {'precision': precision, 'recall': recall, 'F1-score': F1_score}
 
     # Print or return the overall metrics for each question category
-    print("Final Results:")
-    print(overall_metrics_by_category)
+    print(("="*25) + " Final Results " + ('='*25))
+    for category in categories:
+        print('')
+        print("Category:", category)
+        print(f"Precision: {round(overall_metrics_by_category[category]['precision']*100, 2)}")
+        if category in ["color", "shape", "number", "YesNo"]:
+            print(f"Recall: {round(overall_metrics_by_category[category]['recall']*100, 2)} <---- Primary Metric")
+            print(f"F1-score: {round(overall_metrics_by_category[category]['F1-score']*100, 2)}")
+        else:
+            print(f"Recall: {round(overall_metrics_by_category[category]['recall']*100, 2)}")
+            print(f"F1-score: {round(overall_metrics_by_category[category]['F1-score']*100, 2)} <---- Primary Metric")
     
 
 def main(FLAGS):
@@ -321,7 +414,7 @@ def main(FLAGS):
                 val_samples[key] = value
         dataset = val_samples # len = 4966
 
-        n = 20
+        n = 200
         #dataset = dataset[:n]
         selected_samples = {}
         count = 0
@@ -333,6 +426,8 @@ def main(FLAGS):
         dataset = selected_samples
 
         print(f"{len(dataset)} samples loaded.")
+        print("Question Categories: ", Counter([dataset[k]['Qcate'] for k in dataset]))
+        print("")
         llava_question_only_webqa_val(dataset)
 
 
