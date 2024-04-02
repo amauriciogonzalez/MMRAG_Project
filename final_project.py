@@ -58,6 +58,16 @@ def toNum(word):
     try: return w2n.word_to_num(word)
     except:
         return word
+def norm_text_to_nums(norm_text):
+    nums = []
+    for word in norm_text:
+        if word == 'twice':
+            nums.append('2')
+        if word == 'no':
+            nums.append('0')
+        else:
+            nums.append(toNum(word))
+    return nums
 
 """
 def normalize_text(s):
@@ -169,6 +179,8 @@ def _webqa_acc_approx(predction, ground_truth, domain=None):
     print("Normalized Prediction:", bow_pred)
     print("Normalized Target:", bow_target)
     if domain == {"NUMBER"}:
+        bow_pred = norm_text_to_nums(bow_pred)
+        bow_target = norm_text_to_nums(bow_target)
         bow_pred = detectNum(bow_pred)
         bow_target = detectNum(bow_target)
     elif domain is not None:
@@ -343,7 +355,11 @@ def set_webqa_node_captions(retrieval_results, sample_data, positive_ids):
 
 def construct_augmented_query(retrieval_results, query):
     obtained_facts = 1
-    augmented_query = "Consider the following facts: "
+    # If there exists a text node
+    if any(not isinstance(res_node.node, ImageNode) for res_node in retrieval_results):
+        augmented_query = "Consider the following facts: "
+    else:
+        augmented_query = ""
     retrieved_image_path = ""       # ONLY EXPECTS ONE RETRIEVED IMAGE.
     image_caption = ''
     for res_node in retrieval_results:
@@ -355,11 +371,11 @@ def construct_augmented_query(retrieval_results, query):
             obtained_facts += 1
     
     if retrieved_image_path:
-        augmented_query += f'\n\nAlso, the image has the following caption: {image_caption}.'
+        augmented_query += f'\n\nThe image has the following caption: {image_caption}.'
     else:
         augmented_query += f'\n\nIgnore the image.'
     
-    augmented_query += f"\n\nAnswer the following question: {query}"
+    augmented_query += f"\n\nAnswer the following question: '{query}' Answer in one complete sentence."
 
     if not retrieved_image_path:
         #print("BLACK IMAGE RETRIEVED")
@@ -367,6 +383,47 @@ def construct_augmented_query(retrieval_results, query):
     
     return augmented_query, retrieved_image_path
 
+def construct_perfect_augmented_query(txt_posFacts, img_posFacts, sample_guid, query):
+    read_ids = []
+
+    obtained_facts = 1
+    if len(txt_posFacts) != 0:
+        augmented_query = "Consider the following facts: "
+    else:
+        augmented_query = ""
+
+    retrieved_image_paths = []
+    image_captions = []
+
+    for txt_posFact in txt_posFacts:
+        augmented_query += f'\n\n{obtained_facts}. Title: {txt_posFact["title"]}. Fact: {txt_posFact["fact"]}'
+        obtained_facts += 1
+        read_ids.append(str(txt_posFact['snippet_id']))
+
+    for img_posFact in img_posFacts:
+        image_path = f"./source_data/data-{sample_guid}/{img_posFact['image_id']}.jpg"
+        if os.path.exists(image_path):
+            retrieved_image_paths.append(image_path)
+            image_captions.append(img_posFact['caption'])
+            read_ids.append(str(img_posFact['image_id']))
+
+    if retrieved_image_paths:
+        if len(txt_posFacts) != 0:
+            augmented_query += "\n\n"
+        augmented_query += f'The images have the following captions: '
+        for image_caption in image_captions:
+            augmented_query += (image_caption + " ")
+    else:
+        augmented_query += f'\n\nIgnore the image.'
+        retrieved_image_paths.append("./black_image.png")
+    
+    #augmented_query += f"\n\nAnswer the following question in a complete sentence: {query}"
+    augmented_query += f"\n\nAnswer the following question: '{query}' Answer in one complete sentence."
+
+    return augmented_query, retrieved_image_paths, read_ids
+
+
+    
 def calculate_retrieved_id_metrics(positive_ids, retrieved_ids):
     """
     Calculate precision, recall, and F1 score based on positive IDs and retrieved IDs.
@@ -447,6 +504,101 @@ def index_store_retrieve_webqa(sample_guid, query, data_folder_path, text_simila
     return retrieval_results
 
 
+def rejecter_module(model_args, sample_query, retrieval_results):
+    read_ids = []
+    read_results = []
+
+    print(('=' * 50) + "REJECTER MODULE" + ('=' * 50))
+    
+    for res_node in retrieval_results:
+        if isinstance(res_node.node, ImageNode):
+            retrieved_image_path = res_node.node.metadata.get("file_path", "")
+            image_id = os.path.splitext(os.path.basename(retrieved_image_path))[0]
+            image_caption = res_node.node.text
+
+            # Get response from llava, asking if the image can be used to answer the query.
+
+            question = f"Can the image, with caption '{res_node.node.text}' be used to answer the query '{sample_query}'? Answer 'yes' or 'no' and provide a small explanation of your reasoning."
+
+            model_args.query = question
+            model_args.image_file = retrieved_image_path
+
+            response = eval_model(model_args)
+
+            print("Rejecter Query:", question)
+            print("Response:", response)
+
+            if 'yes' in response.lower():
+                # If yes, keep the response and add node the node in read_results.
+                read_results.append(res_node)
+                read_ids.append(str(image_id))
+                print("Accepted source.")
+            else:
+                # If no, discard the response
+                print("Rejected source.")
+                pass
+        
+        else:
+            retrieved_text_path = res_node.node.metadata.get("file_path", "")
+            text_id = os.path.splitext(os.path.basename(retrieved_text_path))[0]
+
+            # Get response from llava, asking if the text snippet can be used to answer the query.
+            # Use the black image as input
+
+            context = "Ignore the image and answer the following question:\n"
+            question = f"Can the following text snippet be used to answer the query '{sample_query}'? Answer 'yes' or 'no' and provide a small explanation of your reasoning:\n{res_node.node.text}"
+            query = context + question
+            model_args.query = query
+            model_args.image_file = './black_image.png'
+
+            response = eval_model(model_args)
+
+            print("Rejecter Query:", question)
+            print("Response:", response)
+
+            if 'yes' in response.lower():
+                # If yes, keep the response and add node the node in read_results.
+                read_results.append(res_node)
+                read_ids.append(str(text_id))
+                print("Accepted source.")
+            else:
+                # If no, discard the response
+                print("Rejected source.")
+                pass
+
+    return read_results, read_ids
+
+
+def count_facts_in_ids(positive_ids, ids):
+    # Initialize counts for each type of fact
+    txt_posFacts_count = 0
+    txt_negFacts_count = 0
+    img_posFacts_count = 0
+    img_negFacts_count = 0
+    
+    # Count occurrences of each type of fact in ids
+    for fact_id in ids:
+        if fact_id in positive_ids:
+            if fact_id.startswith('d'):
+                txt_posFacts_count += 1
+            else:
+                img_posFacts_count += 1
+        else:
+            if fact_id.startswith('d'):
+                txt_negFacts_count += 1
+            else:
+                img_negFacts_count += 1
+    
+    return {
+        'txt_posFacts': txt_posFacts_count,
+        'txt_negFacts': txt_negFacts_count,
+        'img_posFacts': img_posFacts_count,
+        'img_negFacts': img_negFacts_count
+    }
+
+
+
+
 def llava_webqa_val(dataset, mode, text_similarity_top_k=3, image_similarity_top_k=1):
     # Define the LLAVA model path and other parameters
     """
@@ -493,8 +645,8 @@ def llava_webqa_val(dataset, mode, text_similarity_top_k=3, image_similarity_top
 
 
     categories = ['text', 'YesNo', 'Others', 'choose', 'number', 'color', 'shape']
-    if mode == 3:
-        categories = ['retr'] + categories
+    if mode != 2:
+        categories = ['retr', 'read'] + categories
 
     # Initialize dictionaries to accumulate evaluation metrics for each question category
     metrics_by_category = {category: {'precision': [], 'recall': [], 'F1-score': []} for category in categories}
@@ -503,8 +655,44 @@ def llava_webqa_val(dataset, mode, text_similarity_top_k=3, image_similarity_top
     i = 0
     for sample_guid, sample_data in dataset.items():
         question = sample_data['Q']
+        positive_ids = []
+        retrieved_ids = []
+        read_ids = []
 
         # Query construction
+        if mode == 1:
+            # Assuming perfect retrieval of document objects
+            txt_posFacts = sample_data['txt_posFacts']
+            txt_negFacts = sample_data['txt_negFacts']
+            img_posFacts = sample_data['img_posFacts']
+            img_negFacts = sample_data['img_negFacts']
+
+            positive_ids = [str(sample['snippet_id']) for sample in txt_posFacts] + [str(sample['image_id']) for sample in img_posFacts]
+
+            data_folder_path = './source_data'
+            
+            sample_data_folder_path = f"/data-{sample_guid}" 
+            sample_data_folder_path = data_folder_path + sample_data_folder_path
+
+            query = sample_data['Q']
+
+            augmented_query, retrieved_image_paths, read_ids = construct_perfect_augmented_query(txt_posFacts, img_posFacts, sample_guid, query)
+
+            retrieved_ids = positive_ids
+
+            precision, recall, f1_score = calculate_retrieved_id_metrics(positive_ids, retrieved_ids)
+            metrics_by_category['retr']['precision'].append(precision)
+            metrics_by_category['retr']['recall'].append(recall)
+            metrics_by_category['retr']['F1-score'].append(f1_score)
+            precision, recall, f1_score = calculate_retrieved_id_metrics(positive_ids, read_ids)
+            metrics_by_category['read']['precision'].append(precision)
+            metrics_by_category['read']['recall'].append(recall)
+            metrics_by_category['read']['F1-score'].append(f1_score)
+
+            query = augmented_query
+
+            args.query = query
+            args.image_file = ",".join(retrieved_image_paths)
         if mode == 2:
             # Question only
             context = "Ignore the image and answer the following question: "
@@ -530,10 +718,16 @@ def llava_webqa_val(dataset, mode, text_similarity_top_k=3, image_similarity_top
             retrieval_results = index_store_retrieve_webqa(sample_guid=sample_guid, query=query, data_folder_path=sample_data_folder_path, text_similarity_top_k=text_similarity_top_k, image_similarity_top_k=image_similarity_top_k)
             retrieval_results, retrieved_ids = set_webqa_node_captions(retrieval_results, sample_data, positive_ids)
 
+            # In this case, retrieved_ids are the read_ids.
+            read_ids = retrieved_ids
+
             precision, recall, f1_score = calculate_retrieved_id_metrics(positive_ids, retrieved_ids)
             metrics_by_category['retr']['precision'].append(precision)
             metrics_by_category['retr']['recall'].append(recall)
             metrics_by_category['retr']['F1-score'].append(f1_score)
+            metrics_by_category['read']['precision'].append(precision)
+            metrics_by_category['read']['recall'].append(recall)
+            metrics_by_category['read']['F1-score'].append(f1_score)
 
             augmented_query, retrieved_image_path = construct_augmented_query(retrieval_results, query)
             query = augmented_query
@@ -541,6 +735,42 @@ def llava_webqa_val(dataset, mode, text_similarity_top_k=3, image_similarity_top
 
             args.query = query
             args.image_file = retrieved_image_path
+        elif mode == 4:
+            # RAG with rejecter module
+            txt_posFacts = sample_data['txt_posFacts']
+            txt_negFacts = sample_data['txt_negFacts']
+            img_posFacts = sample_data['img_posFacts']
+            img_negFacts = sample_data['img_negFacts']
+
+            positive_ids = [str(sample['snippet_id']) for sample in txt_posFacts] + [str(sample['image_id']) for sample in img_posFacts]
+
+            data_folder_path = './source_data'
+            
+            sample_data_folder_path = f"/data-{sample_guid}" 
+            sample_data_folder_path = data_folder_path + sample_data_folder_path
+
+            query = sample_data['Q']
+
+            retrieval_results = index_store_retrieve_webqa(sample_guid=sample_guid, query=query, data_folder_path=sample_data_folder_path, text_similarity_top_k=text_similarity_top_k, image_similarity_top_k=image_similarity_top_k)
+            retrieval_results, retrieved_ids = set_webqa_node_captions(retrieval_results, sample_data, positive_ids)
+
+            read_results, read_ids = rejecter_module(args, query, retrieval_results)
+
+            precision, recall, f1_score = calculate_retrieved_id_metrics(positive_ids, retrieved_ids)
+            metrics_by_category['retr']['precision'].append(precision)
+            metrics_by_category['retr']['recall'].append(recall)
+            metrics_by_category['retr']['F1-score'].append(f1_score)
+            precision, recall, f1_score = calculate_retrieved_id_metrics(positive_ids, read_ids)
+            metrics_by_category['read']['precision'].append(precision)
+            metrics_by_category['read']['recall'].append(recall)
+            metrics_by_category['read']['F1-score'].append(f1_score)
+
+            augmented_query, read_image_path = construct_augmented_query(read_results, query)
+
+            query = augmented_query
+
+            args.query = query
+            args.image_file = read_image_path
 
 
 
@@ -565,6 +795,16 @@ def llava_webqa_val(dataset, mode, text_similarity_top_k=3, image_similarity_top
         metrics_by_category[Qcate]['recall'].append(metrics['recall'])
         metrics_by_category[Qcate]['F1-score'].append(metrics['F1-score'])
 
+        if mode != 2:
+            print("Positive source ids:", positive_ids)
+            print("Retrieved source ids:", retrieved_ids)
+            print("Read source ids:", read_ids)
+            num_retr_ids = count_facts_in_ids(positive_ids, retrieved_ids)
+            num_read_ids = count_facts_in_ids(positive_ids, read_ids)
+            for category, count in num_retr_ids.items():
+                print(f"Number of retrieved {category}: {count}")
+                print(f"Number of read {category}: {num_read_ids[category]}")
+
         print("=" * 100)
 
         i+=1
@@ -577,6 +817,25 @@ def llava_webqa_val(dataset, mode, text_similarity_top_k=3, image_similarity_top
         F1_score = np.mean(category_metrics['F1-score'])
         overall_metrics_by_category[category] = {'precision': precision, 'recall': recall, 'F1-score': F1_score}
 
+    # Computing average overall categories:
+
+    # Define the categories to exclude in overall score (included all except 'retr' in overall_t)
+    categories_to_exclude = ['retr', 'read', 'Others', 'choose']
+
+    # Compute overall metrics excluding the specified categories
+    overall_precision = np.mean([metrics['precision'] for category, metrics in overall_metrics_by_category.items() if category not in categories_to_exclude])
+    overall_recall = np.mean([metrics['recall'] for category, metrics in overall_metrics_by_category.items() if category not in categories_to_exclude])
+    overall_f1_score = np.mean([metrics['F1-score'] for category, metrics in overall_metrics_by_category.items() if category not in categories_to_exclude])
+
+    overall_precision_t = np.mean([metrics['precision'] for category, metrics in overall_metrics_by_category.items() if category not in ['retr', 'read']])
+    overall_recall_t = np.mean([metrics['recall'] for category, metrics in overall_metrics_by_category.items() if category not in ['retr', 'read']])
+    overall_f1_score_t = np.mean([metrics['F1-score'] for category, metrics in overall_metrics_by_category.items() if category not in ['retr', 'read']])
+
+    # Add the overall metrics to the dictionary
+    overall_metrics_by_category['overall'] = {'precision': overall_precision, 'recall': overall_recall, 'F1-score': overall_f1_score}
+    overall_metrics_by_category['overall_t'] = {'precision': overall_precision_t, 'recall': overall_recall_t, 'F1-score': overall_f1_score_t}
+
+
     print("")
     print(("="*25) + " Final Results " + ('='*25))
 
@@ -584,20 +843,21 @@ def llava_webqa_val(dataset, mode, text_similarity_top_k=3, image_similarity_top
     #pprint(metrics_by_category)
     #pprint(overall_metrics_by_category)
 
+    categories = categories + ['overall', 'overall_t']
+
     for category in categories:
         print('')
         print("Category:", category)
         print(f"Precision: {round(overall_metrics_by_category[category]['precision']*100, 2)}")
-        if category in ['retr']:
-            print(f"Recall: {round(overall_metrics_by_category[category]['recall']*100, 2)}")
-            print(f"F1-score: {round(overall_metrics_by_category[category]['F1-score']*100, 2)}")
-            continue
         if category in ["color", "shape", "number", "YesNo"]:
             print(f"Recall: {round(overall_metrics_by_category[category]['recall']*100, 2)} <---- Primary Metric")
             print(f"F1-score: {round(overall_metrics_by_category[category]['F1-score']*100, 2)}")
-        else:
+        elif category in ['choose', 'Others', 'text']:
             print(f"Recall: {round(overall_metrics_by_category[category]['recall']*100, 2)}")
             print(f"F1-score: {round(overall_metrics_by_category[category]['F1-score']*100, 2)} <---- Primary Metric")
+        else:
+            print(f"Recall: {round(overall_metrics_by_category[category]['recall']*100, 2)}")
+            print(f"F1-score: {round(overall_metrics_by_category[category]['F1-score']*100, 2)}")
     
 
 def main(FLAGS):
@@ -616,30 +876,11 @@ def main(FLAGS):
     """
 
 
-    if FLAGS.mode == 1:
+    if FLAGS.mode == 0:
         # Question only, test
-
         dataset = json.load(open("datasets/WebQA/annotations/WebQA_test.json", "r"))
         llava_question_only_webqa_test(dataset, FLAGS.save_output)
-    if FLAGS.mode == 2:
-        # Question only, val
-
-        dataset = json.load(open("datasets/WebQA/annotations/WebQA_train_val.json", "r"))
-        if FLAGS.n == 0:
-            n = len(dataset)
-        else:
-            n = FLAGS.n
-        dataset = webqa_val_extraction(dataset, n)
-
-        print(f"{len(dataset)} samples loaded.")
-        print("Question Categories: ", Counter([dataset[k]['Qcate'] for k in dataset]))
-        print("LLaVA-WebQA Question Only")
-        print("")
-
-        llava_webqa_val(dataset, FLAGS.mode)
-    if FLAGS.mode == 3:
-        # Naive RAG, val
-
+    else:
         dataset = json.load(open("datasets/WebQA/annotations/WebQA_train_val.json", "r"))
         if FLAGS.n == 0:
             n = len(dataset)
@@ -652,10 +893,34 @@ def main(FLAGS):
 
         print(f"{len(dataset)} samples loaded.")
         print("Question Categories: ", Counter([dataset[k]['Qcate'] for k in dataset]))
-        print(f"LLaVA-WebQA Naive-RAG ({text_similarity_top_k}, {image_similarity_top_k})")
-        print("")
 
-        llava_webqa_val(dataset, FLAGS.mode, text_similarity_top_k, image_similarity_top_k)
+        if FLAGS.mode == 1:
+            # Assuming perfect retrieval, val
+
+            print("LLaVA-WebQA Assuming Perfect Retrieval")
+            print("")
+
+            llava_webqa_val(dataset, FLAGS.mode)
+        if FLAGS.mode == 2:
+            # Question only, val
+
+            print("LLaVA-WebQA Question Only")
+            print("")
+
+            llava_webqa_val(dataset, FLAGS.mode)
+        elif FLAGS.mode == 3:
+            # Naive RAG, val
+
+            print(f"LLaVA-WebQA Naive-RAG ({text_similarity_top_k}, {image_similarity_top_k})")
+            print("")
+
+            llava_webqa_val(dataset, FLAGS.mode, text_similarity_top_k, image_similarity_top_k)
+        elif FLAGS.mode == 4:
+            # RAG, Rejector Module, val
+
+            print(f"LLaVA-WebQA RAG with Rejecter Module ({text_similarity_top_k}, {image_similarity_top_k})")
+            print("")
+            llava_webqa_val(dataset, FLAGS.mode, text_similarity_top_k, image_similarity_top_k)
 
 
 
