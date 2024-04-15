@@ -385,13 +385,13 @@ def set_node_captions_keyword_module(retrieval_results, sample_data, positive_id
     return updated_retrieval_results, retrieved_ids, keyword_ids
 """
 
-def set_node_captions_keyword_module(retrieval_results, sample_data, positive_ids, query, use_km, top_n):
+def set_node_captions_keyword_module(retrieval_results, sample_data, positive_ids, query, use_km, top_n, keyword_threshold):
     retrieved_ids = []
     updated_retrieval_results = []
 
     query_keywords = []
     keyword_ids = []
-    keyword_count_threshold = top_n // 4
+    keyword_count_threshold = keyword_threshold
     if use_km:
         query_keywords = keyword_extraction(query, top_n)
 
@@ -798,7 +798,7 @@ def input_metrics_category(category, metrics_by_category, particular_positive_id
     return metrics_by_category
 
 
-def benchmark(dataset, mode, text_similarity_top_k=3, image_similarity_top_k=1, use_mmqa=False, use_km=False, top_n=10, bu_image=True, bu_text=False):
+def benchmark(dataset, mode, text_similarity_top_k=3, image_similarity_top_k=1, use_mmqa=False, use_km=False, top_n=10, bu_image=True, bu_text=False, keyword_threshold=2):
     # Define the LLAVA model path and other parameters
     """
     model_path = "liuhaotian/llava-v1.5-7b"
@@ -923,7 +923,7 @@ def benchmark(dataset, mode, text_similarity_top_k=3, image_similarity_top_k=1, 
             query = sample_data['Q']
 
             retrieval_results = index_store_retrieve_webqa(sample_guid=sample_guid, query=query, data_folder_path=sample_data_folder_path, text_similarity_top_k=text_similarity_top_k, image_similarity_top_k=image_similarity_top_k)
-            retrieval_results, retrieved_ids, keyword_ids = set_node_captions_keyword_module(retrieval_results, sample_data, positive_ids, query, use_km, top_n)
+            retrieval_results, retrieved_ids, keyword_ids = set_node_captions_keyword_module(retrieval_results, sample_data, positive_ids, query, use_km, top_n, keyword_threshold)
 
             retrieved_text_ids = [ID for (ID, modality) in retrieved_ids if modality == 't']
             retrieved_image_ids = [ID for (ID, modality) in retrieved_ids if modality == 'i']
@@ -986,7 +986,7 @@ def benchmark(dataset, mode, text_similarity_top_k=3, image_similarity_top_k=1, 
             query = sample_data['Q']
 
             retrieval_results = index_store_retrieve_webqa(sample_guid=sample_guid, query=query, data_folder_path=sample_data_folder_path, text_similarity_top_k=text_similarity_top_k, image_similarity_top_k=image_similarity_top_k)
-            retrieval_results, retrieved_ids, keyword_ids = set_node_captions_keyword_module(retrieval_results, sample_data, positive_ids, query, use_km, top_n)            
+            retrieval_results, retrieved_ids, keyword_ids = set_node_captions_keyword_module(retrieval_results, sample_data, positive_ids, query, use_km, top_n, keyword_threshold)            
 
             if mode == 4:
                 image_only = False
@@ -1196,8 +1196,9 @@ def main(FLAGS):
     
     if FLAGS.use_km:
         print(f"Using Keyword Module, top {FLAGS.top_n} keywords.")
+        print(f"Matching keyword count threshold: {FLAGS.key_thresh}")
     print("")
-    benchmark(dataset, FLAGS.mode, text_similarity_top_k, image_similarity_top_k, use_mmqa=FLAGS.use_mmqa, use_km=FLAGS.use_km, top_n=FLAGS.top_n, bu_image=FLAGS.bu_image, bu_text=FLAGS.bu_text)
+    benchmark(dataset, FLAGS.mode, text_similarity_top_k, image_similarity_top_k, use_mmqa=FLAGS.use_mmqa, use_km=FLAGS.use_km, top_n=FLAGS.top_n, bu_image=FLAGS.bu_image, bu_text=FLAGS.bu_text, keyword_threshold=FLAGS.key_thresh)
 
 
 
@@ -1233,6 +1234,10 @@ if __name__ == "__main__":
     parser.add_argument('--bu_text',
                         action="store_true",
                         help='Read at least one text_snippet from the rejecter module')
+    parser.add_argument('--key_thresh',
+                        type=int, default=2,
+                        help='Number of matching keywords needed for text snippets to pass the keyword module')
+                        
     
     FLAGS = None
     FLAGS, unparsed = parser.parse_known_args()
