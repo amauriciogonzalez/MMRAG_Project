@@ -1,0 +1,22 @@
+Please run `conda env list` to see a list of all available environments. Use
+`source activate <env>` to activate the environment '<env>'. 
+
+Lmod is automatically replacing "anaconda/anaconda3" with
+"python/python-3.8.0-gcc-9.1.0".
+
+Please run `conda env list` to see a list of all available environments. Use
+`source activate <env>` to activate the environment '<env>'. 
+
+Currently Loaded Modules:
+  1) gcc/gcc-9.1.0                        4) mkl/mkl-2019.5.281
+  2) protobuf/protobuf-3.10.1-gcc-9.1.0   5) python/python-3.8.0-gcc-9.1.0
+  3) sqlite/sqlite-3.30.1-gcc-9.1.0       6) cuda/cuda-10.2
+
+ 
+
+You are using a model of type llava to instantiate a model of type llava_llama. This is not supported for all configurations of models and can yield errors.
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:09<00:09,  9.90s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:13<00:00,  6.31s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:13<00:00,  6.85s/it]
+/lustre/fs1/home/cap6412.student36/vllava/lib/python3.8/site-packages/transformers/generation/configuration_utils.py:392: UserWarning: `do_sample` is set to `False`. However, `temperature` is set to `0` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `temperature`.
+  warnings.warn(
+/lustre/fs1/home/cap6412.student36/vllava/lib/python3.8/site-packages/transformers/generation/configuration_utils.py:397: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `None` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
+  warnings.warn(
