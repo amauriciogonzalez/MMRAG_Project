@@ -1,5 +1,9 @@
 # RefineRAG: Multimodal Noise Reduction for LLM-Based Question Answering
 
+<img width="1397" height="366" alt="image" src="https://github.com/user-attachments/assets/f24591e0-5b12-4076-b1d0-2e35b1bc5044" />
+
+<img width="1397" height="411" alt="image" src="https://github.com/user-attachments/assets/6fd237cd-e51f-4201-ae91-45f1a23fc0ef" />
+
 A modular **retrieval-augmented generation (RAG)** pipeline that filters noisy multimodal retrievals (image + text) to improve LLM reasoning accuracy.
 
 ## Highlights
